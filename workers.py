@@ -2,50 +2,11 @@ import os
 import random
 import string
 
-from buildbot.plugins import worker, util
+from buildbot.plugins import util
+from buildbot.plugins import worker
 
 
-class MyWorkerBase(object):
-    # true if this box is buildbot.net, and can build docs, etc.
-    buildbot_net = False
-
-    # true if this box should use a 'simple' factory, meaning no virtualenv
-    # (basically good for windows)
-    use_simple = False
-
-    # true if this box can test the buildmaster and worker, respectively
-    test_master = True
-    test_worker = True
-
-    # true if this worker should have a single-worker builder of its own
-    run_single = True
-
-    # true if this host has PyQt4 installed in its default python
-    pyqt4 = False
-
-    # true if this worker can contribute to the virtualenv-managed pool of
-    # specific-configuration builders.  Specific supported python versions
-    # are given, too
-    run_config = False
-    py26 = False
-    py27 = False
-    pypy17 = False
-    pypy18 = False
-
-    tw0810 = False
-    tw0900 = True
-    tw1020 = True
-    tw1110 = True
-    tw1220 = True
-    tw1320 = True
-    tw1400 = True
-
-    # true if this has nodejs installed, suitable for www
-    nodejs = False
-
-    # dictionary mapping databases to the env vars required to make them go
-    databases = {}
-
+class MyWorkerBase:
     # operating system, for os-specific builders; this should only be used
     # for fleets of machines that are basically interchangebale
     os = None
@@ -61,13 +22,17 @@ class MyWorkerBase(object):
         return remaining
 
     def get_random_pass(self):
-        return ''.join(
-            random.choice(string.ascii_uppercase + string.digits)
-            for _ in range(20))
+        return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(20))
 
     def get_pass(self, name):
         # get the password based on the name
-        path = os.path.join(os.path.dirname(__file__), "%s.pass" % name)
+        file_name = name
+        if name.startswith("p12-pd"):
+            file_name = "p12-pd-any"
+        if name.startswith("p12-ep2"):
+            file_name = "p12-ep2-any"
+
+        path = os.path.join(os.path.dirname(__file__), f"{file_name}.pass")
         if not os.path.exists(path):
             print("warning {} does not exit. creating one".format(path))
             pw = self.get_random_pass()
@@ -90,13 +55,9 @@ class MyWorker(MyWorkerBase, worker.Worker):
 
 
 class MyLocalWorker(MyWorkerBase, worker.LocalWorker):
-
     def __init__(self, name, **kwargs):
         kwargs = self.extract_attrs(name, **kwargs)
-        return worker.LocalWorker.__init__(
-            self,
-            name,
-            **kwargs)
+        worker.LocalWorker.__init__(self, name, **kwargs)
 
 
 # has to be the same for all workers
@@ -104,68 +65,60 @@ kube_config = util.KubeCtlProxyConfigLoader()
 
 
 class MyKubeWorker(MyWorkerBase, worker.KubeLatentWorker):
-
     def getBuildContainerResources(self, build):
         cpu = str(build.getProperty("NUM_CPU", "1"))
         mem = str(build.getProperty("MEMORY_SIZE", "1G"))
 
-        # ensure proper configuration
-        if mem not in ["256M", "512M", "1G", "2G", "4G"]:
-            mem = "1G"
-        if cpu not in ["1", "2", "4"]:
-            cpu = "1"
-        size = build.getProperty("HYPER_SIZE")
+        return {"requests": {"cpu": cpu, "memory": mem}}
 
-        if size is not None:
-            # backward compat for rebuilding old commits
-            HYPER_SIZES = {
-                "s3": [1, "256M"],
-                "s4": [1, "512M"],
-                "m1": [1, "1G"],
-                "m2": [2, "2G"],
-                "m3": [2, "4G"]
+    def get_build_container_volume_mounts(self, build):
+        return [
+            {
+                "name": "scratch-volume",
+                "mountPath": "/scratch",
             }
-            if size in HYPER_SIZES:
-                cpu, mem = HYPER_SIZES[size]
-        cpu = int(cpu)
-        return {
-            "requests": {
-                "cpu": cpu,
-                "memory": mem
+        ]
+
+    def get_volumes(self, build):
+        return [
+            {
+                "name": "scratch-volume",
+                "emptyDir": {
+                    "medium": "Memory",
+                    "sizeLimit": "2Gi",
+                },
             }
-        }
+        ]
+
+    def get_node_selector(self, props):
+        return {"bb-pool-type": "work"}
 
     def __init__(self, name, **kwargs):
         kwargs = self.extract_attrs(name, **kwargs)
 
-        return worker.KubeLatentWorker.__init__(
+        worker.KubeLatentWorker.__init__(
             self,
             name,
             kube_config=kube_config,
-            image=util.Interpolate("%(prop:DOCKER_IMAGE:-buildbot/metabbotcfg)s"),
+            image=util.Interpolate(
+                "%(prop:DOCKER_IMAGE:-europe-west9-docker.pkg.dev/metabuildbot-227920/metabuildbot-worker-fr/buildbot/metabbotcfg)s"
+            ),
             masterFQDN="buildbot.buildbot.net",
-            **kwargs)
+            **kwargs,
+        )
 
 
-workers = [
-    # add 40 kube workers
-    MyKubeWorker(
-        'kube{:02d}'.format(i),
-        max_builds=1,
-        build_wait_timeout=0,
-        run_single=False,
-        run_config=True,
-        py26=True,
-        py27=True)
-    for i in range(40)
-] + [
-    # add 4 local workers
-    MyLocalWorker(
-        'local{:01d}'.format(i),
-        max_builds=1,
-        run_single=False,
-        run_config=True,
-        py26=True,
-        py27=True)
-    for i in range(4)
-]
+workers = (
+    [
+        # add 40 kube workers
+        MyKubeWorker(f"kube{i:02d}", max_builds=1, build_wait_timeout=0)
+        for i in range(40)
+    ]
+    + [
+        # add 4 local workers
+        MyLocalWorker('local{:01d}'.format(i), max_builds=1)
+        for i in range(5)
+    ]
+    + [MyWorker(f"p12-pd-{i}", max_builds=1) for i in range(40)]
+    + [MyWorker(f"p12-ep2-{i}", max_builds=1) for i in range(80)]
+)
