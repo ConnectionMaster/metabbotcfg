@@ -8,7 +8,7 @@
 FROM quay.io/buildbot/metabbotcfg-python AS python-build
 
 FROM quay.io/buildbot/buildbot-worker:master
-MAINTAINER  Buildbot Maintainers
+LABEL org.opencontainers.image.authors="Buildbot Maintainers"
 
 # Switch to root to be able to install stuff
 USER root
