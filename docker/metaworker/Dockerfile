@@ -23,6 +23,7 @@ RUN apt-get update \
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 
 ENV LANG=en_US.utf8
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 # install the DB drivers we need to test against databases, as well as git and nodejs
 RUN mkdir -p /etc/apt/keyrings \
@@ -77,8 +78,7 @@ RUN mkdir -p /etc/apt/keyrings \
         python3-venv  \
     \
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
-    && npm install -g yarn \
-    && yarn global add protractor \
+    && corepack enable \
     && curl -sL -o /tmp/chrome.deb https://github.com/p12tic/buildbot-test-data/raw/master/packages/google-chrome-stable_114.0.5735.198-1_amd64.deb \
     && (dpkg -i /tmp/chrome.deb || apt-get --fix-broken -y install) \
     && rm -rf /var/lib/apt/lists/* /tmp/chrome.deb
