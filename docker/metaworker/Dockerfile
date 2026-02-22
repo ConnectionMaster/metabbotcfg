@@ -64,6 +64,7 @@ RUN mkdir -p /etc/apt/keyrings \
         libgles2 \
         libgstreamer-gl1.0-0 \
         libgstreamer-plugins-bad1.0-0 \
+        libgtk-4-1 \
         libgudev-1.0-0 \
         libharfbuzz-icu0 \
         libhyphen0 \
@@ -110,4 +111,3 @@ ENV PATH="/pyenv/pybin:${PATH}"
 
 # Switch to regular user for security reasons
 USER buildbot
-
