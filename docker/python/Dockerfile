@@ -1,4 +1,4 @@
-FROM debian:13
+FROM debian:12
 LABEL org.opencontainers.image.authors="Buildbot Maintainers"
 
 USER root
